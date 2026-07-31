@@ -1,6 +1,9 @@
 **/.DS_Store
 TODO
 build*/*
+build-cmake-release
+compile_commands.json
+.qoder
 
 dist
 outwheel
