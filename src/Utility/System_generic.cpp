@@ -29,6 +29,7 @@
 #include "llvm/TargetParser/SubtargetFeature.h"
 
 #include "QBDI/Config.h"
+#include "QBDI/Platform.h"
 #include "Utility/LogSys.h"
 #include "Utility/System.h"
 
@@ -37,17 +38,44 @@ namespace QBDI {
 bool isRWXSupported() { return false; }
 bool isRWRXSupported() { return true; }
 
-llvm::sys::MemoryBlock
-allocateMappedMemory(size_t numBytes,
-                     const llvm::sys::MemoryBlock *const nearBlock,
+// GhostHook seam pointers (default null => native llvm mmap path).
+void *(*ghostCodeAlloc)(size_t numBytes, unsigned pFlags) = nullptr;
+void (*ghostCodeFree)(void *base) = nullptr;
+
+llvm::sys::MemoryBlock allocateMappedMemory(size_t numBytes, const llvm::sys::MemoryBlock *const nearBlock,
                      unsigned pFlags, std::error_code &ec) {
+  // GhostHook: route the JIT code-cache block into host memory (ghost memory,
+  // VMA-less). The allocator returns RWX regardless of pFlags (W^X flips are
+  // short-circuited in ExecBlock::makeRX/makeRW).
+  if (ghostCodeAlloc != nullptr) {
+    void *base = ghostCodeAlloc(numBytes, pFlags);
+    if (base == nullptr) {
+      ec = std::make_error_code(std::errc::not_enough_memory);
+      return {};
+    }
+    ec = std::error_code();
+    return llvm::sys::MemoryBlock(base, numBytes);
+  }
   // forward to llvm function
   return llvm::sys::Memory::allocateMappedMemory(numBytes, nearBlock, pFlags,
                                                  ec);
 }
 
 void releaseMappedMemory(llvm::sys::MemoryBlock &block) {
+  if (ghostCodeFree != nullptr) {
+    ghostCodeFree(block.base());
+    return;
+  }
   llvm::sys::Memory::releaseMappedMemory(block);
+}
+
+// GhostHook seam setter (exported): host injects the code-cache allocator before
+// the first VM is constructed. Passing null,null restores the native path.
+extern "C" QBDI_EXPORT
+void qbdi_setGhostAllocator(void *(*allocFn)(size_t numBytes, unsigned pFlags), void (*freeFn)(void
+    *base)) {
+  ghostCodeAlloc = allocFn;
+  ghostCodeFree = freeFn;
 }
 
 const std::string getHostCPUName() {

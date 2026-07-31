@@ -519,9 +519,18 @@ uint16_t ExecBlock::splitSequence(uint16_t instID) {
 void ExecBlock::makeRX() {
   if (not isRX()) {
     QBDI_DEBUG("Making ExecBlock 0x{:x} RX", reinterpret_cast<uintptr_t>(this));
-    QBDI_REQUIRE_ABORT(!llvm::sys::Memory::protectMappedMemory(
-                           codeBlock, PF::MF_READ | PF::MF_EXEC),
-                       "Fail to set the page permission to RX");
+    // GhostHook: ghost memory is permanently RWX and VMA-less, so mprotect is a
+    // no-op/failure. Skip protectMappedMemory but still invalidate the I-cache
+    // (the native protect(RX) path does this via LLVM; mirrors the iOS RWX branch
+    // in ExecBlock::run()). Otherwise freshly JITed code may hit a stale I-cache.
+    if (ghostCodeAlloc != nullptr) {
+      llvm::sys::Memory::InvalidateInstructionCache(codeBlock.base(),
+                                                    codeBlock.allocatedSize());
+    } else {
+      QBDI_REQUIRE_ABORT(!llvm::sys::Memory::protectMappedMemory(
+                             codeBlock, PF::MF_READ | PF::MF_EXEC),
+                         "Fail to set the page permission to RX");
+    }
     pageState = RX;
   }
 }
@@ -529,9 +538,13 @@ void ExecBlock::makeRX() {
 void ExecBlock::makeRW() {
   if (not isRW()) {
     QBDI_DEBUG("Making ExecBlock 0x{:x} RW", reinterpret_cast<uintptr_t>(this));
-    QBDI_REQUIRE_ABORT(!llvm::sys::Memory::protectMappedMemory(
-                           codeBlock, PF::MF_READ | PF::MF_WRITE),
-                       "Fail to set the page permission to RW");
+    // GhostHook: ghost memory is permanently RWX; skip mprotect (no I-cache work
+    // needed here, the next makeRX() invalidates it).
+    if (ghostCodeAlloc == nullptr) {
+      QBDI_REQUIRE_ABORT(!llvm::sys::Memory::protectMappedMemory(
+                             codeBlock, PF::MF_READ | PF::MF_WRITE),
+                         "Fail to set the page permission to RW");
+    }
     pageState = RW;
   }
 }

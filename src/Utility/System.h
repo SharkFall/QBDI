@@ -36,6 +36,13 @@ void releaseMappedMemory(llvm::sys::MemoryBlock &block);
 const std::string getHostCPUName();
 const std::vector<std::string> getHostCPUFeatures();
 bool isHostCPUFeaturePresent(const char *f);
+
+// GhostHook seam: redirect JIT code-cache allocation to a host-provided allocator
+// (ghost memory). Both null => native llvm::sys::Memory path, so the patch is inert
+// when unused. Referenced only inside libQBDI (System_generic / ExecBlock).
+extern void *(*ghostCodeAlloc)(size_t numBytes, unsigned pFlags);
+extern void (*ghostCodeFree)(void *base);
+// Public setter qbdi_setGhostAllocator: see QBDI/GhostAllocator.h (included above).
 } // namespace QBDI
 
 #endif // SYSTEM_H
