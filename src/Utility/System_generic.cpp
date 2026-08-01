@@ -72,8 +72,7 @@ void releaseMappedMemory(llvm::sys::MemoryBlock &block) {
 // GhostHook seam setter (exported): host injects the code-cache allocator before
 // the first VM is constructed. Passing null,null restores the native path.
 extern "C" QBDI_EXPORT
-void qbdi_setGhostAllocator(void *(*allocFn)(size_t numBytes, unsigned pFlags), void (*freeFn)(void
-    *base)) {
+void qbdi_setGhostAllocator(void *(*allocFn)(size_t numBytes, unsigned pFlags), void (*freeFn)(void *base)) {
   ghostCodeAlloc = allocFn;
   ghostCodeFree = freeFn;
 }
